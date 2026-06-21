@@ -1,7 +1,6 @@
 # SkinBeauty — Companion Dermatologique IA
 
-Application de soin de la peau en **architecture microservices**, projet d'examen 4ème année TWIN.
-
+✨🌿 BeautySkyn🌿✨  🤖 AI-powered skincare companion    👤 Skin profile management  📊 Skin analysis tracking  🧴 Personalized skincare routines  🔒 Secure &amp; scalable microservices architecture    🚀 Spring Boot • NestJS • React • RabbitMQ • Keycloak • Docker
 ---
 
 ## Architecture globale
