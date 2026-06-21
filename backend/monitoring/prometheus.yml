@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+
+  - job_name: 'skinbeauty-gateway'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['gateway:9999']
+
+  - job_name: 'skinbeauty-profil-ms'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['profil-ms:8081']
+
+  - job_name: 'skinbeauty-eureka'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['eureka-server:8761']
+
+  - job_name: 'skinbeauty-config'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['config-server:8888']

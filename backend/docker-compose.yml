@@ -1,0 +1,245 @@
+version: "3.9"
+
+# ═══════════════════════════════════════════════════════════════════════
+# SkinBeauty — Docker Compose (11 services)
+# Architecture microservices : Spring Boot + NestJS + Monitoring
+#
+# Démarrage : docker-compose up --build
+# ─────────────────────────────────────────
+# Dashboard Eureka    : http://localhost:8761
+# Config Server       : http://localhost:8888
+# profil-ms           : http://localhost:8081
+# routine-ms (Swagger): http://localhost:3001/api-docs
+# Gateway             : http://localhost:9999
+# Keycloak admin      : http://localhost:8099  (admin/admin)
+# RabbitMQ UI         : http://localhost:15672 (guest/guest)
+# Prometheus          : http://localhost:9090
+# Grafana             : http://localhost:3000  (admin/admin)
+# ═══════════════════════════════════════════════════════════════════════
+
+services:
+
+  # ═══════════════════════════════════════
+  # INFRASTRUCTURE — Bases de données & Broker
+  # ═══════════════════════════════════════
+
+  mysql:
+    image: mysql:8
+    container_name: skinbeauty-mysql
+    environment:
+      MYSQL_DATABASE: profil_db
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      # Port 3307 sur l'hôte — IMPORTANT : arrêter MySQL dans XAMPP avant de lancer Docker
+      # Les conteneurs communiquent via mysql:3306 en interne (pas de conflit)
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mongo:
+    image: mongo:7
+    container_name: skinbeauty-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: skinbeauty-rabbitmq
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.1
+    container_name: skinbeauty-keycloak
+    command: start-dev --import-realm --http-port=8099
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8099:8099"
+    volumes:
+      - ./keycloak/SkinBeautyRealm-realm.json:/opt/keycloak/data/import/SkinBeautyRealm-realm.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8099/health/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ═══════════════════════════════════════
+  # MICROSERVICES — Couche infrastructure
+  # ═══════════════════════════════════════
+
+  eureka-server:
+    build: ./eureka-server
+    container_name: skinbeauty-eureka
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_APPLICATION_NAME=eureka-server
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8761/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  config-server:
+    build: ./config-server
+    container_name: skinbeauty-config
+    ports:
+      - "8888:8888"
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8888/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ═══════════════════════════════════════
+  # MICROSERVICES — Couche métier
+  # ═══════════════════════════════════════
+
+  profil-ms:
+    build: ./profil-ms
+    container_name: skinbeauty-profil
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/profil_db
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=root
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - SPRING_RABBITMQ_USERNAME=guest
+      - SPRING_RABBITMQ_PASSWORD=guest
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  routine-ms:
+    build: ./routine-ms
+    container_name: skinbeauty-routine
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - MONGO_URI=mongodb://mongo:27017/routine-db
+      - EUREKA_HOST=eureka-server
+      - EUREKA_PORT=8761
+      - RABBITMQ_URI=amqp://guest:guest@rabbitmq:5672
+      - SERVICE_NAME=ROUTINE-MS
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ═══════════════════════════════════════
+  # GATEWAY — Porte d'entrée sécurisée (JWT Keycloak)
+  # ═══════════════════════════════════════
+
+  gateway:
+    build: ./gateway
+    container_name: skinbeauty-gateway
+    ports:
+      - "9999:9999"
+    environment:
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://keycloak:8099/realms/SkinBeautyRealm
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8099/realms/SkinBeautyRealm/protocol/openid-connect/certs
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      profil-ms:
+        condition: service_started
+      routine-ms:
+        condition: service_started
+      keycloak:
+        condition: service_started
+
+  # ═══════════════════════════════════════
+  # MONITORING — Prometheus + Grafana (Valeur ajoutée)
+  # ═══════════════════════════════════════
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: skinbeauty-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    depends_on:
+      - gateway
+      - profil-ms
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: skinbeauty-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+
+# ═══════════════════════════════════════
+# VOLUMES persistants
+# ═══════════════════════════════════════
+volumes:
+  mysql_data:
+  mongo_data:
+  prometheus_data:
+  grafana_data:

@@ -1,0 +1,83 @@
+{
+  "realm": "DeepSkynRealm",
+  "displayName": "DeepSkyn — Companion Dermatologique",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "accessTokenLifespan": 3600,
+  "refreshTokenMaxReuse": 0,
+
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "Utilisateur standard — accès en lecture aux ressources DeepSkyn"
+      },
+      {
+        "name": "admin",
+        "description": "Administrateur — accès complet CRUD sur tous les microservices"
+      }
+    ]
+  },
+
+  "clients": [
+    {
+      "clientId": "deepskyn-frontend",
+      "name": "DeepSkyn Frontend",
+      "description": "Application frontend React — DeepSkyn",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://localhost:5173"
+      ],
+      "defaultClientScopes": ["openid", "profile", "email", "roles"]
+    }
+  ],
+
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@deepskyn.tn",
+      "firstName": "Alice",
+      "lastName": "Dupont",
+      "enabled": true,
+      "credentials": [
+        { "type": "password", "value": "alice123", "temporary": false }
+      ],
+      "realmRoles": ["user"]
+    },
+    {
+      "username": "admin",
+      "email": "admin@deepskyn.tn",
+      "firstName": "Admin",
+      "lastName": "DeepSkyn",
+      "enabled": true,
+      "credentials": [
+        { "type": "password", "value": "admin123", "temporary": false }
+      ],
+      "realmRoles": ["user", "admin"]
+    },
+    {
+      "username": "youssef",
+      "email": "youssef@deepskyn.tn",
+      "firstName": "Youssef",
+      "lastName": "Ben Ali",
+      "enabled": true,
+      "credentials": [
+        { "type": "password", "value": "youssef123", "temporary": false }
+      ],
+      "realmRoles": ["user"]
+    }
+  ]
+}

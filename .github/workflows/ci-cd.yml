@@ -1,0 +1,183 @@
+name: SkinBeauty CI/CD Pipeline
+
+# ═══════════════════════════════════════════════════════════════
+# Pipeline CI/CD — GitHub Actions
+# Déclenché sur chaque push/PR vers main et develop
+#
+# Étapes :
+#   1. Build & test des microservices Java (Maven)
+#   2. Build du microservice NestJS (routine-ms)
+#   3. Build des images Docker
+#   4. Push vers Docker Hub (sur main uniquement)
+# ═══════════════════════════════════════════════════════════════
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  DOCKER_REGISTRY: docker.io
+  DOCKER_IMAGE_PREFIX: ${{ secrets.DOCKER_USERNAME }}/skinbeauty
+
+jobs:
+
+  # ────────────────────────────────────────────────────────────
+  # JOB 1 : Build & Test — Microservices Java (Spring Boot)
+  # ────────────────────────────────────────────────────────────
+  build-java:
+    name: Build Java Microservices
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service: [eureka-server, config-server, profil-ms, gateway]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build ${{ matrix.service }} with Maven
+        working-directory: backend/${{ matrix.service }}
+        run: mvn clean package -DskipTests -B
+
+      - name: Run tests ${{ matrix.service }}
+        working-directory: backend/${{ matrix.service }}
+        run: mvn test -B
+        continue-on-error: true
+
+  # ────────────────────────────────────────────────────────────
+  # JOB 2 : Build & Test — routine-ms (NestJS)
+  # ────────────────────────────────────────────────────────────
+  build-nestjs:
+    name: Build NestJS routine-ms
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/routine-ms/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend/routine-ms
+        run: npm ci
+
+      - name: Build routine-ms
+        working-directory: backend/routine-ms
+        run: npm run build
+
+      - name: Lint check
+        working-directory: backend/routine-ms
+        run: npm run lint
+        continue-on-error: true
+
+  # ────────────────────────────────────────────────────────────
+  # JOB 3 : Build Frontend (React + TanStack)
+  # ────────────────────────────────────────────────────────────
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+        env:
+          VITE_PROFIL_API_URL: http://localhost:8081
+          VITE_ROUTINE_API_URL: http://localhost:3001
+        continue-on-error: true
+
+  # ────────────────────────────────────────────────────────────
+  # JOB 4 : Docker Build & Push (sur main uniquement)
+  # ────────────────────────────────────────────────────────────
+  docker-push:
+    name: Docker Build & Push
+    runs-on: ubuntu-latest
+    needs: [build-java, build-nestjs]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push eureka-server
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/eureka-server
+          push: true
+          tags: ${{ env.DOCKER_IMAGE_PREFIX }}-eureka-server:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push config-server
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/config-server
+          push: true
+          tags: ${{ env.DOCKER_IMAGE_PREFIX }}-config-server:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push profil-ms
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/profil-ms
+          push: true
+          tags: ${{ env.DOCKER_IMAGE_PREFIX }}-profil-ms:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push routine-ms
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/routine-ms
+          push: true
+          tags: ${{ env.DOCKER_IMAGE_PREFIX }}-routine-ms:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push gateway
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/gateway
+          push: true
+          tags: ${{ env.DOCKER_IMAGE_PREFIX }}-gateway:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

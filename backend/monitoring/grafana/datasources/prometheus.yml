@@ -1,0 +1,18 @@
+# ═══════════════════════════════════════════════════════════════
+# Grafana — Datasource Prometheus (provisioning automatique)
+# Ce fichier est monté dans le conteneur Grafana via Docker volume.
+# Au démarrage, Grafana se connecte automatiquement à Prometheus.
+# ═══════════════════════════════════════════════════════════════
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # URL interne Docker Compose
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: "15s"
